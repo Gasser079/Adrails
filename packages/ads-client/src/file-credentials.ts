@@ -22,6 +22,11 @@ interface ClientSecretFile {
     client_secret?: string;
     project_id?: string;
   };
+  web?: {
+    client_id?: string;
+    client_secret?: string;
+    project_id?: string;
+  };
 }
 
 export interface FileCredentialOptions {
@@ -52,11 +57,12 @@ export class FileCredentialProvider implements GoogleAdsCredentialProvider {
 
   public async getAuthContext(tenantId: string): Promise<GoogleAdsAuthContext> {
     const skew = this.opts.refreshSkewMs ?? 60_000;
-    const secret = readJson(this.secretPath()) as ClientSecretFile;
-    const file = readJson(this.tokenPath()) as TokenFile;
-    const clientId = secret.installed?.client_id;
-    const clientSecret = secret.installed?.client_secret;
+    const secretDoc = readJson(this.secretPath()) as ClientSecretFile;
+    const secret = secretDoc.web ?? secretDoc.installed;
+    const clientId = secret?.client_id;
+    const clientSecret = secret?.client_secret;
     if (!clientId || !clientSecret) throw new Error("file_credentials_missing_client (client-secret file unreadable)");
+    const file = readJson(this.tokenPath()) as TokenFile;
     if (!file.refresh_token) throw new Error("file_credentials_missing_refresh_token");
 
     const now = Date.now();
