@@ -1,7 +1,6 @@
 -- Adrails 0001: Action Ledger core + audit + idempotency.
 -- Every external mutation lands here as PROPOSED first; nothing dispatches without
--- a VALIDATED -> APPROVED path. Human-in-the-loop stays the gate for high risk.
-PRAGMA journal_mode = WAL;
+-- a VALIDATED -> APPROVED path. Plain DDL only (D1 manages journaling itself).
 
 CREATE TABLE IF NOT EXISTS action_ledger (
   id                   TEXT PRIMARY KEY,
