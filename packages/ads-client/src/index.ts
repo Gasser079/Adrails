@@ -1,6 +1,8 @@
 // @adrails/ads-client — F1: API Rate Shield & Auth Proxy for Google Ads REST v25.
 export { EnvGoogleAdsCredentialProvider, refreshAccessToken } from "./auth.js";
 export type { GoogleAdsCredentialProvider, GoogleAdsAuthContext, OAuthTokenBundle } from "./auth.js";
+export { FileCredentialProvider } from "./file-credentials.js";
+export type { FileCredentialOptions } from "./file-credentials.js";
 export { buildAdsHeaders, assertCustomerId } from "./headers.js";
 export { GoogleAdsErrorMapper, AdsApiError } from "./errors.js";
 export type { ClassifiedAdsError } from "./errors.js";

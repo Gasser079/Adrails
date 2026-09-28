@@ -3,7 +3,7 @@
 import type { D1Database, KVNamespace, Queue } from "@cloudflare/workers-types";
 import { EnvGoogleAdsCredentialProvider } from "@adrails/ads-client";
 import { GoogleAdsRestClient } from "@adrails/ads-client";
-import { ActionLedgerRepository, type D1Like } from "@adrails/action-ledger";
+import { ActionLedgerRepository, TenantRepository, type D1Like } from "@adrails/action-ledger";
 
 export interface AdrailsEnv {
   LEDGER_DB: D1Database;
@@ -19,6 +19,7 @@ export interface AdrailsEnv {
 
 export interface AdrailsDeps {
   ledger: ActionLedgerRepository;
+  tenant: TenantRepository;
   ads: GoogleAdsRestClient;
 }
 
@@ -26,6 +27,7 @@ export function buildDeps(env: AdrailsEnv): AdrailsDeps {
   const provider = new EnvGoogleAdsCredentialProvider();
   return {
     ledger: new ActionLedgerRepository(env.LEDGER_DB as unknown as D1Like),
+    tenant: new TenantRepository(env.LEDGER_DB as unknown as D1Like),
     ads: new GoogleAdsRestClient({
       authProvider: provider,
       kv: env.CACHE as unknown as { get(k: string): Promise<string | null>; put(k: string, v: string, o?: { expirationTtl?: number }): Promise<void> },

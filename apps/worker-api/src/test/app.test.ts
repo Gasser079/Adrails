@@ -5,16 +5,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "../index.js";
-import { ActionLedgerRepository, type D1Like } from "@adrails/action-ledger";
+import { ActionLedgerRepository, TenantRepository, type D1Like } from "@adrails/action-ledger";
 import { GoogleAdsRestClient } from "@adrails/ads-client";
 
 function memDb(): D1Like & { close(): void } {
   const db = new DatabaseSync(":memory:");
-  const ddl = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "migrations", "0001_action_ledger.sql"),
-    "utf8",
-  );
-  db.exec(ddl);
+  const migDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "migrations");
+  for (const f of ["0001_action_ledger.sql", "0002_tenant_oauth.sql"]) {
+    db.exec(fs.readFileSync(path.join(migDir, f), "utf8"));
+  }
   return {
     close: () => db.close(),
     prepare: (sql: string) => ({
@@ -44,6 +43,7 @@ function app() {
   const db = memDb();
   const deps = {
     ledger: new ActionLedgerRepository(db),
+    tenant: new TenantRepository(db),
     ads: new GoogleAdsRestClient({
       fetchFn: mockAdsFetch(),
       authProvider: { getAuthContext: async () => ({ accessToken: "t", customerId: "123", loginCustomerId: "456" }) },
@@ -110,10 +110,12 @@ test("worker-api: L1 read-only strategy routes (no ledger writes)", async () => 
   try {
     const d = await a.request("/v1/strategy/account-discovery", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantId: "agency" }),
+      body: JSON.stringify({ tenantId: "agency", loginCustomerId: "5064608574" }),
     });
     assert.strictEqual(d.status, 200);
-    assert.deepStrictEqual((await d.json() as { resourceNames: string[] }).resourceNames, ["customers/111"]);
+    const disc = (await d.json()) as { manager: string; clients: Array<{ customerId: string }> };
+    assert.strictEqual(disc.manager, "5064608574");
+    assert.deepStrictEqual(disc.clients.map((c) => c.customerId), ["111"]);
 
     const g = await a.request("/v1/strategy/gaql", {
       method: "POST", headers: { "Content-Type": "application/json" },
