@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+**/dist/
+**/*.tsbuildinfo
+
+# Wrangler / dev
+.dev.vars
+.wrangler/
+wrangler.toml
+
+# Runtime / models
+_runtime/
+
+# Secrets
+.env
+.env.*
+
+# Logs
+*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/settings.json

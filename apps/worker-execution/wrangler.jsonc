@@ -1,0 +1,28 @@
+{
+  "name": "adrails-execution",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "ADRAILS_API_VERSION": "v25"
+  },
+  "d1_databases": [
+    { "binding": "LEDGER_DB", "database_name": "adrails-ledger", "database_id": "REPLACE_WITH_D1_ID" }
+  ],
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "REPLACE_WITH_KV_ID" }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "adrails-execution",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10,
+        "max_retries": 5,
+        "dead_letter_queue": "adrails-execution-dlq",
+        "retry_delay": 30
+      }
+    ]
+  }
+}

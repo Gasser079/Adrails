@@ -1,0 +1,14 @@
+# Adrails — local development variables (copy to .dev.vars, never commit)
+# Google Ads (reuses the same GCP OAuth client as the Khora broker connector)
+GOOGLE_ADS_CLIENT_ID=
+GOOGLE_ADS_CLIENT_SECRET=
+GOOGLE_ADS_REFRESH_TOKEN=
+GOOGLE_ADS_CUSTOMER_ID=
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=
+# Auth: manager MCC customer id digits-only — validated by zod, never sent with dashes
+# Cloudflare (set in CI / wrangler secrets; never here)
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
+# AI Gateway (Tier 2 provider keys wired per-deployment)
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=

@@ -1,0 +1,26 @@
+﻿{
+    "name":  "@adrails/worker-api",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "main":  "src/index.ts",
+    "scripts":  {
+                    "dev":  "wrangler dev",
+                    "deploy":  "wrangler deploy",
+                    "build":  "tsc",
+                    "test":  "node --test \"dist/test/**/*.test.js\""
+                },
+    "dependencies":  {
+                         "@adrails/action-ledger":  "workspace:*",
+                         "@adrails/ads-client":  "workspace:*",
+                         "@adrails/ai-middleware":  "workspace:*",
+                         "@adrails/shared-types":  "workspace:*",
+                         "hono":  "^4.7.0"
+                     },
+    "devDependencies":  {
+                            "@cloudflare/workers-types":  "^4.20250306.0",
+                            "typescript":  "^5.4.0",
+                            "vitest":  "^3.0.0",
+                            "wrangler":  "^3.100.0"
+                        }
+}

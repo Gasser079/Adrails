@@ -1,0 +1,20 @@
+{
+  "name": "@adrails/ads-client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test \"dist/test/**/*.test.js\""
+  },
+  "dependencies": {
+    "@adrails/shared-types": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250306.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.4.0"
+  }
+}
