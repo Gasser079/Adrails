@@ -8,10 +8,10 @@
     "ADRAILS_API_VERSION": "v25"
   },
   "d1_databases": [
-    { "binding": "LEDGER_DB", "database_name": "adrails-ledger", "database_id": "REPLACE_WITH_D1_ID" }
+    { "binding": "LEDGER_DB", "database_name": "adrails-ledger", "database_id": "567494ae-9ff4-4e71-a030-e8be12d1e344" }
   ],
   "kv_namespaces": [
-    { "binding": "CACHE", "id": "REPLACE_WITH_KV_ID" }
+    { "binding": "CACHE", "id": "77d721bd26824c83944f69dc4dc356fd" }
   ],
   "queues": {
     "consumers": [
