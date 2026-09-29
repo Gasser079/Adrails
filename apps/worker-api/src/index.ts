@@ -1,5 +1,6 @@
 // @adrails/worker-api — Hono delivery entrypoint (fetch handler for Workers).
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { ZodError } from "zod";
 import { buildDeps, type AdrailsEnv, type AdrailsDeps } from "./env.js";
 import { healthRoutes } from "./routes/health.js";
@@ -9,6 +10,9 @@ import { webhookRoutes } from "./routes/webhooks.js";
 
 export function createApp(deps: AdrailsDeps): Hono {
   const app = new Hono();
+  // Short-term: open CORS so the owner can drive the API from a local
+  // browser page. Revisit with real auth when team logins land (Stage 2).
+  app.use("/*", cors({ origin: "*" }));
   app.route("/", healthRoutes(deps));
   app.route("/", strategyRoutes(deps));
   app.route("/", ledgerRoutes(deps));

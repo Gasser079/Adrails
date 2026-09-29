@@ -1,23 +1,23 @@
-{
-    "name": "@adrails/worker-execution",
-    "version": "0.1.0",
-    "private": true,
-    "type": "module",
-    "main": "src/index.ts",
-    "scripts": {
-        "dev": "wrangler dev",
-        "deploy": "wrangler deploy",
-        "build": "tsc",
-        "test": "node --test \"dist/test/**/*.test.js\""
-    },
-    "dependencies": {
-        "@adrails/action-ledger": "workspace:*",
-        "@adrails/ads-client": "workspace:*",
-        "@adrails/shared-types": "workspace:*"
-    },
-    "devDependencies": {
-        "@cloudflare/workers-types": "^4.20250306.0",
-        "typescript": "^5.4.0",
-        "wrangler": "^4.141.0"
-    }
+﻿{
+    "name":  "@adrails/worker-execution",
+    "version":  "0.1.0",
+    "private":  true,
+    "type":  "module",
+    "main":  "src/index.ts",
+    "scripts":  {
+                    "dev":  "wrangler dev",
+                    "deploy":  "wrangler deploy",
+                    "build":  "tsc",
+                    "test":  "node --experimental-sqlite --test \"dist/test/**/*.test.js\""
+                },
+    "dependencies":  {
+                         "@adrails/action-ledger":  "workspace:*",
+                         "@adrails/ads-client":  "workspace:*",
+                         "@adrails/shared-types":  "workspace:*"
+                     },
+    "devDependencies":  {
+                            "@cloudflare/workers-types":  "^4.20250306.0",
+                            "typescript":  "^5.4.0",
+                            "wrangler":  "^4.141.0"
+                        }
 }
