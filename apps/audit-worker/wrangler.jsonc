@@ -1,0 +1,19 @@
+{
+  "name": "adrails-audit",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    "ADRAILS_API_VERSION": "v25"
+  },
+  "triggers": {
+    "crons": ["*/30 * * * *"]
+  },
+  "d1_databases": [
+    { "binding": "LEDGER_DB", "database_name": "adrails-ledger", "database_id": "567494ae-9ff4-4e71-a030-e8be12d1e344" }
+  ],
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "77d721bd26824c83944f69dc4dc356fd" }
+  ]
+}

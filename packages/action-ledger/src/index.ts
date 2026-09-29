@@ -5,3 +5,5 @@ export { canTransition, evaluateRisk, LEGAL_TRANSITIONS } from "./transitions.js
 export type { RiskEvaluation } from "./transitions.js";
 export { TenantRepository } from "./tenant.js";
 export type { TenantMeta, ManagedClient } from "./tenant.js";
+export { AuditFindingsRepository } from "./audit.js";
+export type { AuditFinding, FindingKind, FindingSeverity } from "./audit.js";

@@ -57,7 +57,16 @@ export function ledgerRoutes(deps: AdrailsDeps): Hono {
 
   app.post("/v1/ledger/:id/approve", async (c) => {
     const input = DecideInput.parse(await c.req.json());
-    return c.json(await deps.ledger.transition(c.req.param("id"), "APPROVED", input.actor, input.reason));
+    const id = c.req.param("id");
+    const approved = await deps.ledger.transition(id, "APPROVED", input.actor, input.reason);
+    // Golden Rule, second half: an approved row must leave the API only as a
+    // queue message. The execution worker (sole mutator) picks it up from there.
+    try {
+      await deps.queue.send({ ledgerId: id, tenantId: approved.tenantId, customerId: approved.customerId });
+    } catch (err) {
+      return c.json({ status: approved.status, error: "enqueue_failed, row stays APPROVED and retryable" }, 502);
+    }
+    return c.json(await deps.ledger.transition(id, "DISPATCHED", "dispatcher", "enqueued for execution"));
   });
 
   app.post("/v1/ledger/:id/reject", async (c) => {

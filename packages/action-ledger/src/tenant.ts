@@ -69,8 +69,22 @@ export class TenantRepository {
     return clients.length;
   }
 
-  public async listClients(tenantId: string): Promise<ManagedClient[]> {
+  public async listTenants(): Promise<TenantMeta[]> {
     const { results } = await this.db
+      .prepare(`SELECT * FROM oauth_meta ORDER BY tenant_id`)
+      .bind()
+      .all<Record<string, unknown>>();
+    return results.map((row: Record<string, unknown>) => ({
+      tenantId: String(row.tenant_id),
+      loginCustomerId: String(row.login_customer_id),
+      accountEmail: row.account_email == null ? undefined : String(row.account_email),
+      scopes: String(row.scopes),
+      projectId: row.project_id == null ? undefined : String(row.project_id),
+      tokenSource: String(row.token_source),
+    }));
+  }
+
+  public async listClients(tenantId: string): Promise<ManagedClient[]> {    const { results } = await this.db
       .prepare(`SELECT tenant_id, customer_id, resource_name FROM managed_clients WHERE tenant_id = ? ORDER BY customer_id`)
       .bind(tenantId)
       .all<Record<string, unknown>>();

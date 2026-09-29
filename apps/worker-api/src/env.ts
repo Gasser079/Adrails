@@ -17,10 +17,15 @@ export interface AdrailsEnv {
   GOOGLE_ADS_LOGIN_CUSTOMER_ID?: string;
 }
 
+export interface QueuePort {
+  send(message: unknown): Promise<void>;
+}
+
 export interface AdrailsDeps {
   ledger: ActionLedgerRepository;
   tenant: TenantRepository;
   ads: GoogleAdsRestClient;
+  queue: QueuePort;
 }
 
 export function buildDeps(env: AdrailsEnv): AdrailsDeps {
@@ -28,6 +33,7 @@ export function buildDeps(env: AdrailsEnv): AdrailsDeps {
   return {
     ledger: new ActionLedgerRepository(env.LEDGER_DB as unknown as D1Like),
     tenant: new TenantRepository(env.LEDGER_DB as unknown as D1Like),
+    queue: env.EXECUTION_QUEUE as unknown as QueuePort,
     ads: new GoogleAdsRestClient({
       authProvider: provider,
       kv: env.CACHE as unknown as { get(k: string): Promise<string | null>; put(k: string, v: string, o?: { expirationTtl?: number }): Promise<void> },

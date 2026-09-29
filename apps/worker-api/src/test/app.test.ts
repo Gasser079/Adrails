@@ -41,20 +41,22 @@ function mockAdsFetch() {
 
 function app() {
   const db = memDb();
+  const sent: unknown[] = [];
   const deps = {
     ledger: new ActionLedgerRepository(db),
     tenant: new TenantRepository(db),
+    queue: { send: async (m: unknown) => { sent.push(m); } },
     ads: new GoogleAdsRestClient({
       fetchFn: mockAdsFetch(),
       authProvider: { getAuthContext: async () => ({ accessToken: "t", customerId: "123", loginCustomerId: "456" }) },
       kv: null,
     }),
   };
-  return { app: createApp(deps), db };
+  return { app: createApp(deps), db, sent };
 }
 
 test("worker-api: health + propose -> pending -> approve (golden-rule path)", async () => {
-  const { app: a, db } = app();
+  const { app: a, db, sent } = app();
   try {
     const h = await a.request("/health");
     assert.strictEqual(h.status, 200);
@@ -87,7 +89,10 @@ test("worker-api: health + propose -> pending -> approve (golden-rule path)", as
       body: JSON.stringify({ actor: "gasser" }),
     });
     assert.strictEqual(ap.status, 200);
-    assert.strictEqual(((await ap.json()) as { status: string }).status, "APPROVED");
+    const dispatched = (await ap.json()) as { status: string };
+    assert.strictEqual(dispatched.status, "DISPATCHED", "approve enqueues and moves to DISPATCHED");
+    assert.strictEqual(sent.length, 1, "exactly one queue message per approval");
+    assert.deepStrictEqual(sent[0], { ledgerId: rec.id, tenantId: "agency", customerId: "123" });
   } finally { db.close(); }
 });
 

@@ -12,7 +12,8 @@
                 },
     "dependencies":  {
                          "@adrails/ads-client":  "workspace:*",
-                         "@adrails/shared-types":  "workspace:*"
+                         "@adrails/shared-types":  "workspace:*",
+                         "@adrails/action-ledger":  "workspace:*"
                      },
     "devDependencies":  {
                             "@cloudflare/workers-types":  "^4.20250306.0",

@@ -178,6 +178,9 @@ importers:
 
   apps/audit-worker:
     dependencies:
+      '@adrails/action-ledger':
+        specifier: workspace:*
+        version: link:../../packages/action-ledger
       '@adrails/ads-client':
         specifier: workspace:*
         version: link:../../packages/ads-client
