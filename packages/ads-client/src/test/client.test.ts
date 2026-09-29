@@ -42,6 +42,33 @@ test("dual-ID enforced: mutates carry login-customer-id + path customer", async 
   assert.strictEqual(log[0].headers["login-customer-id"], "1112223333");
 });
 
+test("tokenFor: mints + caches access token when provider holds only the refresh triple", async () => {
+  const calls: string[] = [];
+  const fetchFn = (async (url: unknown, init?: { body?: string }) => {
+    calls.push(String(url));
+    if (String(url).includes("oauth2.googleapis.com/token")) {
+      return { ok: true, status: 200, json: async () => ({ access_token: "minted-at", expires_in: 3600 }), text: async () => "{}" };
+    }
+    return { ok: true, status: 200, json: async () => ({ results: [{ x: 1 }] }), text: async () => "{}" };
+  }) as unknown as typeof fetch;
+  const store = new Map<string, string>();
+  const kv = {
+    get: async (k: string) => store.get(k) ?? null,
+    put: async (k: string, v: string) => { store.set(k, v); },
+  };
+  const noLiveToken: GoogleAdsCredentialProvider = {
+    getAuthContext: async () => ({ customerId: "4445556666", loginCustomerId: "1112223333", clientId: "cid", clientSecret: "csec", refreshToken: "rt" }),
+  };
+  const client = new GoogleAdsRestClient({ fetchFn, authProvider: noLiveToken, kv });
+  const rows = await client.searchGaql({ tenantId: "t1", customerId: "4445556666", query: "SELECT 1" });
+  assert.strictEqual(rows.length, 1);
+  assert.ok(calls[0].includes("oauth2.googleapis.com/token"), "refresh happens before the API call");
+  assert.ok(store.has("adrails:token:t1"), "minted token cached in KV");
+  const before = calls.length;
+  await client.searchGaql({ tenantId: "t1", customerId: "4445556666", query: "SELECT 2" });
+  assert.ok(!calls.slice(before).some((u) => u.includes("oauth2.googleapis.com/token")), "second call reuses cached token, no re-refresh");
+});
+
 test("transient 429 retries and 401 surfaces ACCESS-classified failure, dashes rejected", async () => {
   const log: Array<{ url: string; headers: Record<string, string> }> = [];
   const client = new GoogleAdsRestClient({

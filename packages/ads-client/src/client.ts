@@ -6,6 +6,7 @@ import { ENDPOINTS } from "./endpoints.js";
 import { GoogleAdsErrorMapper, AdsApiError } from "./errors.js";
 import { retryWithBackoff, PerCustomerGate, KvResponseCache, type KvLike } from "./rate.js";
 import type { GoogleAdsCredentialProvider } from "./auth.js";
+import { refreshAccessToken } from "./auth.js";
 
 export interface RestClientDeps {
   fetchFn?: typeof fetch;
@@ -36,8 +37,25 @@ export class GoogleAdsRestClient {
 
   private async tokenFor(tenantId: string): Promise<{ accessToken: string; loginCustomerId?: string }> {
     const auth = await this.deps.authProvider.getAuthContext(tenantId);
-    if (!auth.accessToken) throw new Error(`auth_missing_access_token for tenant ${tenantId} (refresh via Worker Secrets first)`);
-    return { accessToken: auth.accessToken, loginCustomerId: auth.loginCustomerId };
+    if (auth.accessToken) return { accessToken: auth.accessToken, loginCustomerId: auth.loginCustomerId };
+    // No live access token (e.g. Worker Secrets hold only the refresh triple):
+    // mint one now, cache it in KV so concurrent calls share it.
+    if (!auth.clientId || !auth.clientSecret || !auth.refreshToken) {
+      throw new Error(`auth_missing_access_token for tenant ${tenantId} (refresh via Worker Secrets first)`);
+    }
+    const cacheKey = `adrails:token:${tenantId}`;
+    const cached = await this.cache.get<{ accessToken: string; expiresAtMs: number }>(cacheKey);
+    if (cached && cached.expiresAtMs - Date.now() > 60_000) {
+      return { accessToken: cached.accessToken, loginCustomerId: auth.loginCustomerId };
+    }
+    const bundle = await refreshAccessToken({
+      fetchFn: this.fetchFn,
+      clientId: auth.clientId,
+      clientSecret: auth.clientSecret,
+      refreshToken: auth.refreshToken,
+    });
+    await this.cache.put(cacheKey, { accessToken: bundle.accessToken, expiresAtMs: bundle.expiresAtMs }, 3500);
+    return { accessToken: bundle.accessToken, loginCustomerId: auth.loginCustomerId };
   }
 
   private async send<T>(opts: {
