@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
@@ -110,11 +110,11 @@ test("worker-api: L1 read-only strategy routes (no ledger writes)", async () => 
   try {
     const d = await a.request("/v1/strategy/account-discovery", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tenantId: "agency", loginCustomerId: "5064608574" }),
+      body: JSON.stringify({ tenantId: "agency", loginCustomerId: "1000000001" }),
     });
     assert.strictEqual(d.status, 200);
     const disc = (await d.json()) as { manager: string; clients: Array<{ customerId: string }> };
-    assert.strictEqual(disc.manager, "5064608574");
+    assert.strictEqual(disc.manager, "1000000001");
     assert.deepStrictEqual(disc.clients.map((c) => c.customerId), ["111"]);
 
     const g = await a.request("/v1/strategy/gaql", {

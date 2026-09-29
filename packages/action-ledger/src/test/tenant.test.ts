@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
@@ -34,11 +34,11 @@ test("tenant repo: upsert/get manager record, rejects dashed ids", async () => {
     const repo = new TenantRepository(db);
     assert.strictEqual(await repo.getTenant("agency"), null);
     await repo.upsertTenant({
-      tenantId: "agency", loginCustomerId: "5064608574", accountEmail: "owner@example.com",
+      tenantId: "agency", loginCustomerId: "1000000001", accountEmail: "owner@example.com",
       scopes: "https://www.googleapis.com/auth/adwords", tokenSource: "agency-credential-files",
     });
     const got = await repo.getTenant("agency");
-    assert.strictEqual(got?.loginCustomerId, "5064608574");
+    assert.strictEqual(got?.loginCustomerId, "1000000001");
     assert.strictEqual(got?.tokenSource, "agency-credential-files");
     await assert.rejects(repo.upsertTenant({
       tenantId: "agency", loginCustomerId: "506-460-8574",
