@@ -50,7 +50,10 @@ Adrails/
 ├── apps/
 │   ├── worker-api/          # Hono delivery: health, ledger, L1 strategy (read-only)
 │   ├── worker-execution/    # Queue consumer: approved-ledger dispatch (Stage 2+)
-│   └── audit-worker/        # L3 governance: telemetry, drift, recommendations (Stage 2+)
+│   ├── audit-worker/        # L3 governance: telemetry, drift, recommendations (Stage 2+)
+│   └── expert-agent/        # Cloud Ads expert: Discovery-grounded reads (41 v25 tools,
+│                            #   mutates excluded) + ledger-gated writes; brain chain
+│                            #   Groq gpt-oss-120b → qwen3.8 → Workers AI hermes
 ├── packages/
 │   ├── ads-client/          # F1 Rate Shield & Auth Proxy (REST v25, OAuth2, dual-ID)
 │   ├── ai-middleware/       # F2 AI Gateway client, tier router, Zod schema guard
