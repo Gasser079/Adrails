@@ -1,6 +1,7 @@
 // @adrails/expert-agent — HTTP entry: per-tenant Durable Object instances.
 // POST /v1/expert/:tenantId/ask { question } -> grounded answer + chase block.
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { z, ZodError } from "zod";
 import { ExpertAgent } from "./expert-agent.js";
 
@@ -17,6 +18,8 @@ const AskInput = z.object({ question: z.string().min(1).max(4000) });
 
 export function createExpertApp(): Hono {
   const app = new Hono();
+  // Short-term: open CORS for the owner's browser smoke page (revisit with auth).
+  app.use("/*", cors({ origin: "*" }));
   app.get("/health", (c) => c.json({ status: "ok", service: "adrails-expert", apiVersion: "v25" }));
   app.post("/v1/expert/:tenantId/ask", async (c) => {
     const input = AskInput.parse(await c.req.json());
