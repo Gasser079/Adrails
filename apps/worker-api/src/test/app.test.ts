@@ -46,6 +46,8 @@ function app() {
     ledger: new ActionLedgerRepository(db),
     tenant: new TenantRepository(db),
     queue: { send: async (m: unknown) => { sent.push(m); } },
+    riskModel: "rules",
+    ai: null,
     ads: new GoogleAdsRestClient({
       fetchFn: mockAdsFetch(),
       authProvider: { getAuthContext: async () => ({ accessToken: "t", customerId: "123", loginCustomerId: "456" }) },
@@ -94,6 +96,51 @@ test("worker-api: health + propose -> pending -> approve (golden-rule path)", as
     assert.strictEqual(sent.length, 1, "exactly one queue message per approval");
     assert.deepStrictEqual(sent[0], { ledgerId: rec.id, tenantId: "agency", customerId: "123" });
   } finally { db.close(); }
+});
+
+test("worker-api: RISK_MODEL=clef uses the model tier, dead AI falls back to rules", async () => {
+  const mkApp = (ai: { run(model: string, input: unknown): Promise<unknown> } | null) => {
+    const db = memDb();
+    const sent: unknown[] = [];
+    const deps = {
+      ledger: new ActionLedgerRepository(db),
+      tenant: new TenantRepository(db),
+      queue: { send: async (m: unknown) => { sent.push(m); } },
+      riskModel: "clef",
+      ai,
+      ads: new GoogleAdsRestClient({
+        fetchFn: mockAdsFetch(),
+        authProvider: { getAuthContext: async () => ({ accessToken: "t", customerId: "123", loginCustomerId: "456" }) },
+        kv: null,
+      }),
+    };
+    return { app: createApp(deps), db };
+  };
+  const propose = {
+    tenantId: "agency", customerId: "123", actionType: "audit.account",
+    requestId: "r-clef", scope: "customers/123", payload: {}, createdBy: "USER_EXPLICIT",
+  } as const;
+
+  // clef says high on a normally-low action -> the model tier wins
+  {
+    const { app: a, db } = mkApp({
+      run: async () => ({ answers: { tier: { value: "high" }, risk_score: { value: 0.9 } } }),
+    });
+    try {
+      const p = await a.request("/v1/ledger/propose", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(propose) });
+      assert.strictEqual(p.status, 201);
+      assert.strictEqual(((await p.json()) as { riskTier: string }).riskTier, "high");
+    } finally { db.close(); }
+  }
+  // clef dead -> regex tier recorded anyway (fail-closed to old behavior)
+  {
+    const { app: a, db } = mkApp({ run: async () => { throw new Error("ai down"); } });
+    try {
+      const p = await a.request("/v1/ledger/propose", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(propose) });
+      assert.strictEqual(p.status, 201);
+      assert.strictEqual(((await p.json()) as { riskTier: string }).riskTier, "low");
+    } finally { db.close(); }
+  }
 });
 
 test("worker-api: zod validation is 400 (customer dashes rejected)", async () => {

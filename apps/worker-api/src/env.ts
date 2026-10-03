@@ -9,7 +9,9 @@ export interface AdrailsEnv {
   LEDGER_DB: D1Database;
   CACHE: KVNamespace;
   EXECUTION_QUEUE: Queue;
+  AI: { run(model: string, input: unknown): Promise<unknown> };
   ADRAILS_API_VERSION?: string;
+  RISK_MODEL?: string;
   GOOGLE_ADS_CLIENT_ID?: string;
   GOOGLE_ADS_CLIENT_SECRET?: string;
   GOOGLE_ADS_REFRESH_TOKEN?: string;
@@ -26,6 +28,9 @@ export interface AdrailsDeps {
   tenant: TenantRepository;
   ads: GoogleAdsRestClient;
   queue: QueuePort;
+  /** "clef" enables the Clef risk evaluator (default "rules"). Fail-closed to rules. */
+  riskModel: string;
+  ai: { run(model: string, input: unknown): Promise<unknown> } | null;
 }
 
 export function buildDeps(env: AdrailsEnv): AdrailsDeps {
@@ -34,6 +39,8 @@ export function buildDeps(env: AdrailsEnv): AdrailsDeps {
     ledger: new ActionLedgerRepository(env.LEDGER_DB as unknown as D1Like),
     tenant: new TenantRepository(env.LEDGER_DB as unknown as D1Like),
     queue: env.EXECUTION_QUEUE as unknown as QueuePort,
+    riskModel: env.RISK_MODEL ?? "rules",
+    ai: (env.AI ?? null) as AdrailsDeps["ai"],
     ads: new GoogleAdsRestClient({
       authProvider: provider,
       kv: env.CACHE as unknown as { get(k: string): Promise<string | null>; put(k: string, v: string, o?: { expirationTtl?: number }): Promise<void> },

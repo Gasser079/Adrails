@@ -1,6 +1,6 @@
 // @adrails/action-ledger/repository — D1-backed ledger over a minimal D1Like
 // port (real env.LEDGER_DB in Workers; node:sqlite adapter in tests).
-import { ActionStatusSchema, type ActionProposal, type ActionStatus } from "@adrails/shared-types";
+import { ActionStatusSchema, type ActionProposal, type ActionStatus, type RiskTier } from "@adrails/shared-types";
 import { canTransition, evaluateRisk } from "./transitions.js";
 
 export interface D1Row {
@@ -61,8 +61,10 @@ export class ActionLedgerRepository {
     return `ledger-${this.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  public async record(input: ProposalInput): Promise<LedgerRecord> {
-    const { score, tier } = evaluateRisk(input.actionType);
+  public async record(input: ProposalInput, opts?: { risk?: { score: number; tier: RiskTier } }): Promise<LedgerRecord> {
+    const evaluated = opts?.risk ?? evaluateRisk(input.actionType);
+    const score = evaluated.score;
+    const tier = evaluated.tier;
     const id = input.id ?? this.uid();
     const ts = this.now();
     await this.db

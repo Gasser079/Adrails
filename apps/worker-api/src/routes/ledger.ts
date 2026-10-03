@@ -3,6 +3,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { CustomerIdSchema } from "@adrails/shared-types";
+import { evaluateRiskWithClef } from "@adrails/action-ledger";
 import type { AdrailsDeps } from "../env.js";
 
 const ProposeInput = z.object({
@@ -26,16 +27,34 @@ export function ledgerRoutes(deps: AdrailsDeps): Hono {
 
   app.post("/v1/ledger/propose", async (c) => {
     const input = ProposeInput.parse(await c.req.json());
-    const rec = await deps.ledger.record({
-      tenantId: input.tenantId,
-      customerId: input.customerId,
-      actionType: input.actionType,
-      requestId: input.requestId,
-      scope: input.scope,
-      payload: input.payload,
-      createdBy: input.createdBy,
-      idempotencyKey: input.idempotencyKey,
-    });
+    // Clef risk model is opt-in (RISK_MODEL=clef) and fail-closed: any error
+    // falls back to the deterministic regex tiers. Default behavior unchanged.
+    let risk: { score: number; tier: "low" | "medium" | "high" } | undefined;
+    if (deps.riskModel === "clef" && deps.ai) {
+      try {
+        const judged = await evaluateRiskWithClef(
+          deps.ai,
+          input.actionType,
+          JSON.stringify(input.payload).slice(0, 500),
+        );
+        risk = { score: judged.score, tier: judged.tier };
+      } catch (err) {
+        console.error("clef risk fallback to rules:", err);
+      }
+    }
+    const rec = await deps.ledger.record(
+      {
+        tenantId: input.tenantId,
+        customerId: input.customerId,
+        actionType: input.actionType,
+        requestId: input.requestId,
+        scope: input.scope,
+        payload: input.payload,
+        createdBy: input.createdBy,
+        idempotencyKey: input.idempotencyKey,
+      },
+      risk ? { risk } : undefined,
+    );
     return c.json(rec, 201);
   });
 
