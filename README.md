@@ -132,15 +132,17 @@ curl -X POST http://127.0.0.1:8787/v1/ledger/propose \
 ## Deployment
 
 ```bash
-# Remote database migrations first
-npx --no-install wrangler d1 execute adrails-ledger --remote --file=migrations/0001_action_ledger.sql
-npx --no-install wrangler d1 execute adrails-ledger --remote --file=migrations/0002_tenant_oauth.sql
-# Secrets (never in code or D1 plaintext)
-npx --no-install wrangler secret put GOOGLE_ADS_REFRESH_TOKEN
-npx --no-install wrangler secret put GOOGLE_ADS_CLIENT_SECRET
-# Deploy
+# Remote database migrations first (cf tracks applied state; idempotent)
+cf d1 migrations apply <D1-database-id> --dir ./migrations
+# Secrets (never in code or D1 plaintext; value via env var, never literal)
+cf workers secrets update GOOGLE_ADS_REFRESH_TOKEN --text "$VALUE" --type secret_text --worker adrails-api
+# Deploy (wrangler still owns dev/deploy for JS workers during the cf beta)
 pnpm --filter @adrails/worker-api run deploy
 ```
+
+Tool split: `cf` for API operations, listings, and status (JSON-first);
+wrangler for `dev` / `deploy` / `secret put` interactivity. See `SYSTEM-REPORT.md`
+for the full runbook.
 
 Live production deployment: `https://adrails-api.zozocawanozo.workers.dev`
 

@@ -240,13 +240,20 @@ verification is done from unrestricted networks (owner-run smoke page).
 
 ## 7. Operations runbook (the commands that matter)
 
+Tool split: **`cf`** (JSON-first) for API operations, listings, status, and
+migrations; **wrangler** for `dev` / `deploy` / interactive `secret put`.
+No `cloudflare.config.ts` migration until post-beta (wrangler.jsonc stays;
+revisit when the beta ends — wrangler has 18 months maintenance).
+
 ```bash
 pnpm install && pnpm -r run build && pnpm -r --if-present run test
-npx wrangler d1 execute adrails-ledger --remote --file=migrations/000N_*.sql
-npx wrangler secret put NAME                  # paste value, never commit it
-npx wrangler deploy                             # per app dir
-npx wrangler deployments list                   # server-side truth of what's live
-npx wrangler d1 execute adrails-ledger --remote --command="SELECT ..."
+cf d1 migrations apply <D1-database-id> --dir ./migrations
+cf d1 migrations apply <D1-database-id> --local --dir ./migrations
+cf workers secrets update NAME --text "$VALUE" --type secret_text --worker <worker>  # value via env var, never literal
+cf workers secrets list --worker <worker>       # names only, never values
+npx wrangler deploy                             # per app dir (wrangler owns deploys during cf beta)
+cf workers deployments list                     # server-side truth of what's live (verify name)
+cf d1 query <D1-database-id> --sql "SELECT ..." # remote by default; --local for local
 node --experimental-sqlite <script>             # required flag: shell sets NODE_OPTIONS=--no-experimental-sqlite
 ```
 
