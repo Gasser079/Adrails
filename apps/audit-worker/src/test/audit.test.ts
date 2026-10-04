@@ -63,14 +63,59 @@ test("audit: drift + policy findings recorded, recommendations become ledger pro
     assert.strictEqual(s.drift, 1);
     assert.strictEqual(s.policy, 1);
     assert.strictEqual(s.recommendations, 2);
+    assert.strictEqual(s.conversionLoss, 0, "no dated conversion rows in fixture");
+    assert.strictEqual(s.impressionShare, 0, "no share rows in fixture");
+    assert.strictEqual(s.uploadHealth, 1, "empty upload summary records the stop-rule finding");
     const findings = await deps.findings.listByTenant("agency");
-    assert.strictEqual(findings.length, 4);
+    assert.strictEqual(findings.length, 5);
     assert.ok(findings.some((f) => f.kind === "policy" && f.severity === "critical"));
     const recFindings = findings.filter((f) => f.kind === "recommendation");
     assert.ok(recFindings.every((f) => typeof f.ledgerId === "string"), "every recommendation links a ledger proposal");
     const pending = await deps.ledger.pendingByTenant("agency");
     assert.strictEqual(pending.length, 2, "recommendations wait as PROPOSED ledger rows");
     assert.ok(pending.every((p) => p.actionType === "recommendation.triage"));
+  } finally { db.close(); }
+});
+
+test("audit: diagnostics scans — conversion drop, budget-vs-rank, upload shortfall + stop rule", async () => {
+  const db = memDb();
+  try {
+    await seedTenant(db);
+    const deps = depsFor(db, (q) => {
+      if (q.includes("metrics.conversions")) {
+        return [
+          { campaign: { name: "c" }, metrics: { conversions: 2, conversions_value: 20, cost_micros: 1000000 }, segments: { date: "2026-09-28" } },
+          { campaign: { name: "c" }, metrics: { conversions: 10, conversions_value: 100, cost_micros: 1000000 }, segments: { date: "2026-09-27" } },
+          { campaign: { name: "c" }, metrics: { conversions: 10, conversions_value: 100, cost_micros: 1000000 }, segments: { date: "2026-09-26" } },
+        ];
+      }
+      if (q.includes("search_budget_lost_impression_share")) {
+        return [
+          { campaign: { name: "starved" }, metrics: { search_budget_lost_impression_share: 0.35, search_rank_lost_impression_share: 0.05 } },
+          { campaign: { name: "weak" }, metrics: { search_budget_lost_impression_share: 0.05, search_rank_lost_impression_share: 0.4 } },
+          { campaign: { name: "fine" }, metrics: { search_budget_lost_impression_share: 0.05, search_rank_lost_impression_share: 0.05 } },
+        ];
+      }
+      if (q.includes("offline_conversion_upload_conversion_action_summary")) {
+        return [
+          { offline_conversion_upload_conversion_action_summary: { conversion_action_name: "store", successful_event_count: 7, total_event_count: 10, status: "OK" } },
+          { offline_conversion_upload_conversion_action_summary: { conversion_action_name: "clean", successful_event_count: 10, total_event_count: 10, status: "OK" } },
+        ];
+      }
+      return [];
+    });
+    const { conversionLossScan, impressionShareScan, offlineUploadHealthScan } = await import("../scans.js");
+    assert.strictEqual(await conversionLossScan(deps, "agency", "123", new Date("2026-09-20T00:00:00Z")), 1);
+    assert.strictEqual(await impressionShareScan(deps, "agency", "123"), 2);
+    assert.strictEqual(await offlineUploadHealthScan(deps, "agency", "123"), 1);
+    const findings = await deps.findings.listByTenant("agency");
+    const conv = findings.find((f) => f.summary.includes("Conversion drop"));
+    assert.ok(conv && conv.severity === "warning");
+    const budget = findings.find((f) => f.summary.includes("starved"));
+    assert.ok(budget && budget.summary.includes("budget (raise caps"));
+    const rank = findings.find((f) => f.summary.includes("weak"));
+    assert.ok(rank && rank.summary.includes("rank (bids"));
+    assert.ok(findings.some((f) => f.summary.includes("Upload shortfall on store: 7/10")));
   } finally { db.close(); }
 });
 
