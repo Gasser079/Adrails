@@ -11,9 +11,9 @@
                     "test":  "node --experimental-sqlite --test \"dist/test/**/*.test.js\""
                 },
     "dependencies":  {
-                         "@adrails/ads-client":  "workspace:*",
                          "@adrails/shared-types":  "workspace:*",
-                         "@adrails/action-ledger":  "workspace:*"
+                         "@adrails/action-ledger":  "workspace:*",
+                         "@adrails/ads-client":  "workspace:*"
                      },
     "devDependencies":  {
                             "@cloudflare/workers-types":  "^4.20250306.0",

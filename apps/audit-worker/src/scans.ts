@@ -2,6 +2,15 @@
 // Findings are recorded; anything actionable becomes a PROPOSED ledger row.
 // This worker never mutates Google state.
 import type { AuditDeps } from "./env.js";
+import {
+  buildConversionLossQuery,
+  buildDriftQuery,
+  buildImpressionShareQuery,
+  buildPolicyQuery,
+  buildRecommendationQuery,
+  buildUploadHealthQuery,
+  gaqlDateTime,
+} from "./queries.js";
 
 export interface ScanSummary {
   tenantId: string;
@@ -14,19 +23,13 @@ export interface ScanSummary {
   uploadHealth: number;
 }
 
-const gaqlDateTime = (d: Date): string => d.toISOString().slice(0, 19).replace("T", " ");
-
 interface GaqlRow {
   [k: string]: unknown;
 }
 
 /** Change-event drift: every recent external change is recorded for reconciliation. */
 export async function driftScan(deps: AuditDeps, tenantId: string, customerId: string, since: Date): Promise<number> {
-  const query =
-    `SELECT change_event.change_date_time, change_event.change_resource_name, ` +
-    `change_event.client_type, change_event.user_email, change_event.resource_status ` +
-    `FROM change_event WHERE change_event.change_date_time > '${gaqlDateTime(since)}' ` +
-    `ORDER BY change_event.change_date_time DESC LIMIT 50`;
+  const query = buildDriftQuery(since);
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   let n = 0;
   for (const r of rows) {
@@ -36,7 +39,7 @@ export async function driftScan(deps: AuditDeps, tenantId: string, customerId: s
       customerId,
       kind: "drift",
       severity: "info",
-      summary: `External change: ${String(ce.changeResourceName ?? ce.change_resource_name ?? "unknown")} via ${String(ce.clientType ?? ce.client_type ?? "unknown")}`,
+      summary: `External change: ${String(ce.changeResourceName ?? ce.change_resource_name ?? "unknown")} via ${String(ce.clientType ?? ce.client_type ?? "unknown")} (${String(ce.resourceChangeOperation ?? ce.resource_change_operation ?? "op?")})`,
       details: JSON.stringify(ce).slice(0, 1000),
     });
     n++;
@@ -46,10 +49,7 @@ export async function driftScan(deps: AuditDeps, tenantId: string, customerId: s
 
 /** Policy disapprovals: any non-approved ad is a critical finding. */
 export async function policyScan(deps: AuditDeps, tenantId: string, customerId: string): Promise<number> {
-  const query =
-    `SELECT ad_group_ad.ad.id, ad_group_ad.policy_summary.review_status, ` +
-    `ad_group_ad.policy_summary.approval_status FROM ad_group_ad ` +
-    `WHERE ad_group_ad.policy_summary.approval_status != 'APPROVED' LIMIT 50`;
+  const query = buildPolicyQuery();
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   let n = 0;
   for (const r of rows) {
@@ -70,9 +70,7 @@ export async function policyScan(deps: AuditDeps, tenantId: string, customerId: 
 
 /** Recommendations become PROPOSED ledger rows (triage), never auto-applied. */
 export async function recommendationScan(deps: AuditDeps, tenantId: string, customerId: string, limit = 10): Promise<number> {
-  const query =
-    `SELECT recommendation.resource_name, recommendation.type, recommendation.campaign ` +
-    `FROM recommendation LIMIT ${Math.min(Math.max(limit, 1), 25)}`;
+  const query = buildRecommendationQuery(limit);
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   let n = 0;
   for (const r of rows) {
@@ -119,11 +117,7 @@ export async function scanCustomer(deps: AuditDeps, tenantId: string, customerId
  * date; flags drops. cost_micros is divided by 1,000,000 for currency.
  */
 export async function conversionLossScan(deps: AuditDeps, tenantId: string, customerId: string, since: Date): Promise<number> {
-  const from = gaqlDateTime(since).slice(0, 10);
-  const query =
-    `SELECT campaign.name, metrics.conversions, metrics.conversions_value, ` +
-    `metrics.cost_micros, segments.date FROM campaign ` +
-    `WHERE segments.date >= '${from}' ORDER BY segments.date DESC LIMIT 100`;
+  const query = buildConversionLossQuery(since);
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   if (!rows.length) return 0;
   const byDate = new Map<string, { conv: number; value: number; cost: number }>();
@@ -166,10 +160,7 @@ export async function conversionLossScan(deps: AuditDeps, tenantId: string, cust
  * decimals (0.35 = 35%) or strings like "< 0.10".
  */
 export async function impressionShareScan(deps: AuditDeps, tenantId: string, customerId: string): Promise<number> {
-  const query =
-    `SELECT campaign.name, metrics.search_impression_share, ` +
-    `metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share ` +
-    `FROM campaign LIMIT 100`;
+  const query = buildImpressionShareQuery();
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   const num = (v: unknown): number => {
     if (typeof v === "number") return v;
@@ -203,12 +194,7 @@ export async function impressionShareScan(deps: AuditDeps, tenantId: string, cus
  * Stop rule: empty summary = no uploads configured — report once, do not retry.
  */
 export async function offlineUploadHealthScan(deps: AuditDeps, tenantId: string, customerId: string): Promise<number> {
-  const query =
-    `SELECT offline_conversion_upload_conversion_action_summary.conversion_action_name, ` +
-    `offline_conversion_upload_conversion_action_summary.successful_event_count, ` +
-    `offline_conversion_upload_conversion_action_summary.total_event_count, ` +
-    `offline_conversion_upload_conversion_action_summary.status ` +
-    `FROM offline_conversion_upload_conversion_action_summary LIMIT 50`;
+  const query = buildUploadHealthQuery();
   const rows = (await deps.ads.searchGaql({ tenantId, customerId, query })) as GaqlRow[];
   if (!rows.length) {
     await deps.findings.record({

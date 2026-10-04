@@ -11,3 +11,5 @@ export { retryWithBackoff, backoffMs, PerCustomerGate, KvResponseCache, DEFAULT_
 export type { RetryPolicy, KvLike } from "./rate.js";
 export { GoogleAdsRestClient } from "./client.js";
 export type { RestClientDeps, GaqlSearchInput } from "./client.js";
+export { parseGaql, validateGaql } from "./gaql.js";
+export type { FieldArtifact, ResourceDetail, FieldsSnapshot, ParsedGaql } from "./gaql.js";
