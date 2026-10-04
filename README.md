@@ -59,7 +59,8 @@ Adrails/
 │   ├── ai-middleware/       # F2 AI Gateway client, tier router, Zod schema guard
 │   ├── action-ledger/       # F3 D1 repository, state transitions, risk tiers
 │   └── shared-types/        # System contracts (dual-ID, proposals, errors)
-├── migrations/              # D1 SQL: 0001_action_ledger, 0002_tenant_oauth
+├── migrations/              # D1 SQL: 0001_action_ledger, 0002_tenant_oauth,
+│                            #   0003_audit_findings
 ├── brand/                   # Logo (SVG + PNG) for OAuth consent/brand verification
 └── pnpm-workspace.yaml
 ```
@@ -81,6 +82,16 @@ Dependency rule: `delivery → domain → core`. Core never imports domain logic
 3. **AI middleware (`@adrails/ai-middleware`)** — gateway client with JSON-schema
    response mode, task→tier routing, Zod validation barrier with bounded
    re-prompt (fails closed, never returns unvalidated data).
+4. **Clef risk evaluator (opt-in)** — `RISK_MODEL=clef` swaps regex tiers for a
+   decision-model judgment with the same `{score, tier}` shape; any failure
+   falls back to rules, default behavior unchanged.
+5. **CI-time GAQL validation** — scan queries are exported builders proven
+   against a committed `googleAdsFields` snapshot (same source the Query
+   Builder uses); invalid field selections fail the build, not the 3 AM cron.
+6. **Audit watchdog (6 scans)** — drift, policy, recommendations, plus
+   conversion-loss triage, impression-share classification (budget vs rank
+   lever), and offline-upload health. Read-only vs Google; findings + ledger
+   proposals only.
 
 ## Environment & configuration
 
@@ -144,7 +155,9 @@ Tool split: `cf` for API operations, listings, and status (JSON-first);
 wrangler for `dev` / `deploy` / `secret put` interactivity. See `SYSTEM-REPORT.md`
 for the full runbook.
 
-Live production deployment: `https://adrails-api.zozocawanozo.workers.dev`
+Live production deployments:
+- API: `https://adrails-api.zozocawanozo.workers.dev`
+- Expert: `https://adrails-expert.zozocawanozo.workers.dev`
 
 ## Security & reliability standards
 

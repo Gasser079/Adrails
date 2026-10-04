@@ -76,6 +76,12 @@ The only path to Google. Contents:
   GAQL search (cached), atomic mutate, keyword planning (gated), conversion
   upload. Auto-mints access tokens from the refresh triple (memory + KV cache)
   when only secrets are present (the Worker path).
+- `gaql.ts` + `fields/v25-fields.json` — CI-time compatibility check: static
+  scan queries validate against a committed `googleAdsFields` snapshot (1,046
+  artifacts, same source the Query Builder uses). Unknown fields, wrong-resource
+  metrics, and `change_event` rule violations fail the build. Dynamic
+  user-supplied queries are intentionally out of scope (they fail classified
+  at the Google boundary instead).
 
 ### 2.3 `packages/ai-middleware` (F2) — Schema-Enforced AI Middleware
 - `gateway.ts` — Cloudflare AI Gateway client (provider auth, JSON-schema
@@ -95,6 +101,10 @@ The only path to Google. Contents:
   `INVALIDATED`, `EXPIRED`; terminal states are terminal; `FAILED` may retry to
   `DISPATCHED`) + deterministic risk tiers (structural/monetary/bulk → high;
   reads/drafts → low; else medium).
+- `risk-clef.ts` — opt-in model-judged tiers (`RISK_MODEL=clef`): same
+  `{score, tier}` shape from Clef decision model answers (legend-normalized),
+  fail-closed to regex on any error; default behavior unchanged pending
+  calibration evidence.
 - `tenant.ts` — `TenantRepository`: per-tenant OAuth metadata (non-secret) +
   managed-client registry (authoritative replace per discovery run).
 - `audit.ts` — append-only `AuditFindingsRepository` (drift/policy/anomaly/
@@ -118,11 +128,20 @@ storm); transient failures → rethrow (redelivery). Payloads without
 `mutate_operations[]` fail closed without ever calling Google.
 
 ### 2.7 `apps/audit-worker` — the watchdog (cron, every 30 min)
-For every tenant and managed client: **drift scan** (recent `change_event`
-rows → info findings for reconciliation), **policy scan** (non-approved ads →
-critical findings), **recommendation scan** (Google recommendations → `PROPOSED`
-`triage` ledger rows + linked findings, never auto-applied). Per-client errors
-are isolated. Read-only against Google; writes go to findings + ledger only.
+For every tenant and managed client, six read-only scans (per-client errors
+isolated; writes go to findings + ledger only):
+- **drift** (recent `change_event` rows → info findings for reconciliation),
+- **policy** (non-approved ads → critical findings),
+- **recommendations** (Google recommendations → `PROPOSED` triage ledger rows +
+  linked findings, never auto-applied),
+- **conversion-loss** (date-segmented conversions/value/cost vs prior average;
+  >30% drop → warning),
+- **impression-share** (budget-lost vs rank-lost ≥20% → finding naming the
+  exact lever: raise caps vs bids/quality),
+- **upload-health** (offline shortfalls → warning; empty pipeline → one info
+  finding under the stop rule, never retried blindly).
+Scan queries live as exported builders in `queries.ts`, each proven against the
+v25 fields snapshot at build time.
 
 ### 2.8 `apps/expert-agent` — the cloud Ads expert
 Agents SDK `Agent` on a Durable Object (one instance per tenant): conversational
@@ -213,8 +232,8 @@ verification is done from unrestricted networks (owner-run smoke page).
 
 ## 5. Verification evidence
 
-- **46 tests, 0 fail** (ai-middleware 6 · action-ledger 6 · ads-client 19 ·
-  expert-agent 6 · execution 4 · audit 2 · api 3). Hermetic sqlite flags;
+- **58 tests, 0 fail** (ai-middleware 6 · action-ledger 9 · ads-client 25 ·
+  expert-agent 6 · execution 4 · audit 4 · api 4). Hermetic sqlite flags;
   fixture-only credentials.
 - **Live ledger lifecycle, twice**: propose 201 `PROPOSED` → `VALIDATED` →
   `APPROVED` → auto-queued `DISPATCHED` → pending 0 — on production, owner-run.
@@ -223,6 +242,15 @@ verification is done from unrestricted networks (owner-run smoke page).
 - **Expert wiring tests**: broker identity path (map/extract/unauthorized gap);
   compiler test enforces the no-mutate-tools invariant; brain failover tested
   (429 → fallback → answer; full outage → explicit error).
+- **Clef calibration (evidence, not vibes):** live `clef-flash` verified
+  (tier-as-choice + legend-indexed scores — first parser guess was wrong and
+  would have clamped everything to 1.0; corrected + covered). Calibration n=1
+  distinct action: tier agrees, score differs at low model confidence —
+  insufficient to flip the default; stays rules unless future data says
+  otherwise.
+- **GAQL gate paid off immediately:** first run caught a phantom
+  `change_event.resource_status` field (every drift scan would have failed at
+  runtime); fixed to `resource_change_operation`.
 - **Verifiers**: knowledge-map and registry verifiers PASS (16 present, dim 384).
 - **CI gates** (broker origin): frozen install → build → test → secret/admission scans.
 
@@ -260,7 +288,13 @@ node --experimental-sqlite <script>             # required flag: shell sets NODE
 ## 8. Open threads & roadmap
 
 - **Done:** threads #1 (live ledger proof) · #2 (worker secrets + auto-refresh)
-  · #3 (dispatcher + audit live) · #4 (v25 knowledge refresh).
+  · #3 (dispatcher + audit live) · #4 (v25 knowledge refresh) · Clef evaluator
+  (opt-in, calibrated n=1, default stays rules) · GAQL validation live ·
+  Google skills audit (adopt diagnostics / reject stale creds / decline MCP) ·
+  `cf` CLI adoption (verified secrets/migrations/query; runbooks cf-first;
+  `cloudflare.config.ts` deferred post-beta) · Access locks live on both
+  workers (owner-proven both directions).
+- **Declined by owner:** #5 token rotation (risk accepted, recorded).
 - **Declined by owner:** #5 token rotation (risk accepted, recorded).
 - **Open:** #6 OAuth app publishing + brand verification + Explorer/Basic access
   (business unlock; logo ready); one client account vanished from discovery
