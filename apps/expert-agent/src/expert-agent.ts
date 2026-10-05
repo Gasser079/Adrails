@@ -4,6 +4,7 @@ import { Agent, callable } from "agents";
 import type {} from "@cloudflare/workers-types";
 import { EXPERT_SYSTEM_PROMPT } from "./manual.js";
 import { think, type BrainDeps, type ChatMessage } from "./brain.js";
+import { DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./brain.js";
 import {
   trimTools, LEDGER_TOOL_DEFS, executeToolCall,
   type ToolRuntime, type ExecutedTool,
@@ -16,11 +17,8 @@ export interface ExpertEnv extends Cloudflare.Env {
   LEDGER_DB: unknown;
   CACHE: unknown;
   AI: { run(model: string, input: unknown): Promise<unknown> };
-  GROQ_API_KEY?: string;
-  GROQ_API_BASE?: string;
-  GROQ_PRIMARY_MODEL?: string;
-  GROQ_FALLBACK_MODEL?: string;
-  WORKERS_AI_FALLBACK_MODEL?: string;
+  BRAIN_PRIMARY_MODEL?: string;
+  BRAIN_FALLBACK_MODEL?: string;
   GOOGLE_ADS_CLIENT_ID?: string;
   GOOGLE_ADS_CLIENT_SECRET?: string;
   GOOGLE_ADS_REFRESH_TOKEN?: string;
@@ -78,11 +76,8 @@ export class ExpertAgent extends Agent<ExpertEnv, ExpertState> {
     const trimmed = trimTools(input.question, 12);
     const defs = new Map(trimmed.map((d) => [d.name, d]));
     const brainDeps: BrainDeps = {
-      groqApiKey: this.env.GROQ_API_KEY,
-      groqApiBase: this.env.GROQ_API_BASE ?? "https://api.groq.com/openai/v1",
-      primaryModel: this.env.GROQ_PRIMARY_MODEL ?? "openai/gpt-oss-120b",
-      fallbackModel: this.env.GROQ_FALLBACK_MODEL ?? "qwen/qwen3.8-27b",
-      workersAiModel: this.env.WORKERS_AI_FALLBACK_MODEL ?? "@hf/nousresearch/hermes-2-pro-mistral-7b",
+      primaryModel: this.env.BRAIN_PRIMARY_MODEL ?? DEFAULT_PRIMARY_MODEL,
+      fallbackModel: this.env.BRAIN_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL,
       ai: this.env.AI,
     };
     const toolSchemas = [...trimmed, ...LEDGER_TOOL_DEFS];

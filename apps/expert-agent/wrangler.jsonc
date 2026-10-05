@@ -6,10 +6,8 @@
   "observability": { "enabled": true },
   "vars": {
     "ADRAILS_API_VERSION": "v25",
-    "GROQ_PRIMARY_MODEL": "openai/gpt-oss-120b",
-    "GROQ_FALLBACK_MODEL": "qwen/qwen3.8-27b",
-    "WORKERS_AI_FALLBACK_MODEL": "@hf/nousresearch/hermes-2-pro-mistral-7b",
-    "GROQ_API_BASE": "https://api.groq.com/openai/v1"
+    "BRAIN_PRIMARY_MODEL": "@cf/openai/gpt-oss-120b",
+    "BRAIN_FALLBACK_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "durable_objects": {
     "bindings": [{ "name": "EXPERT_AGENT", "class_name": "ExpertAgent" }]

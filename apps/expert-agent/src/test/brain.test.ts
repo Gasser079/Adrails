@@ -1,57 +1,57 @@
 import test from "node:test";
 import assert from "node:assert";
-import { think, type BrainDeps } from "../brain.js";
+import { think, DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL, type BrainDeps } from "../brain.js";
 import type { DiscoveryToolDef } from "../discovery-tools.generated.js";
 
 const TOOLS: DiscoveryToolDef[] = [
   { name: "ping", description: "ping", parameters: { type: "object", properties: {}, required: [] }, httpMethod: "GET", path: "ping", scopes: [] },
 ];
 
-function depsWith(fetchFn: typeof fetch, extra: Partial<BrainDeps> = {}): BrainDeps {
-  return {
-    groqApiKey: "k",
-    groqApiBase: "https://api.groq.com/openai/v1",
-    primaryModel: "openai/gpt-oss-120b",
-    fallbackModel: "qwen/qwen3.8-27b",
-    workersAiModel: "@hf/nousresearch/hermes-2-pro-mistral-7b",
-    fetchFn,
-    ...extra,
-  };
+function depsWith(aiRun: (model: string) => Promise<unknown>): BrainDeps {
+  return { primaryModel: DEFAULT_PRIMARY_MODEL, fallbackModel: DEFAULT_FALLBACK_MODEL, ai: { run: aiRun } };
 }
 
-test("brain: 429 on primary falls to qwen, then answers", async () => {
+test("brain: transient 429 on primary falls to llama, then answers (native shape)", async () => {
   const seen: string[] = [];
-  const fetchFn = (async (url: unknown, init?: { body?: string }) => {
-    const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
-    seen.push(body.model ?? "?");
-    if (body.model === "openai/gpt-oss-120b") {
-      return { ok: false, status: 429, text: async () => "rate limited" };
-    }
-    return {
-      ok: true, status: 200,
-      json: async () => ({ choices: [{ message: { content: "hello from qwen", tool_calls: [] } }] }),
-    };
-  }) as unknown as typeof fetch;
-  const r = await think(depsWith(fetchFn), [{ role: "user", content: "hi" }], TOOLS);
-  assert.strictEqual(r.model, "qwen/qwen3.8-27b");
-  assert.strictEqual(r.content, "hello from qwen");
-  assert.deepStrictEqual(seen, ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]);
+  const r = await think(depsWith(async (model: string) => {
+    seen.push(model);
+    if (model === DEFAULT_PRIMARY_MODEL) throw new Error("AI error 429 rate limited");
+    return { response: "hello from llama", tool_calls: [] };
+  }), [{ role: "user", content: "hi" }], TOOLS);
+  assert.strictEqual(r.model, DEFAULT_FALLBACK_MODEL);
+  assert.strictEqual(r.content, "hello from llama");
+  assert.deepStrictEqual(seen, [DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL]);
 });
 
-test("brain: tool calls normalize to {id,name,arguments}", async () => {
-  const fetchFn = (async () => ({
-    ok: true, status: 200,
-    json: async () => ({
-      choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: "ping", arguments: "{\"a\":1}" } }] } }],
-    }),
-  })) as unknown as typeof fetch;
-  const r = await think(depsWith(fetchFn), [{ role: "user", content: "hi" }], TOOLS);
+test("brain: OpenAI-shape tool calls (gpt-oss) normalize to {id,name,arguments}", async () => {
+  const r = await think(depsWith(async () => ({
+    choices: [{ message: { content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "ping", arguments: "{\"a\":1}" } }] } }],
+  })), [{ role: "user", content: "hi" }], TOOLS);
   assert.strictEqual(r.toolCalls.length, 1);
   assert.strictEqual(r.toolCalls[0].name, "ping");
   assert.deepStrictEqual(r.toolCalls[0].arguments, { a: 1 });
 });
 
-test("brain: chain exhaustion throws (both groq models down, no workers AI)", async () => {
-  const fetchFn = (async () => ({ ok: false, status: 500, text: async () => "down" })) as unknown as typeof fetch;
-  await assert.rejects(think(depsWith(fetchFn), [{ role: "user", content: "hi" }], TOOLS), /brain_chain_exhausted/);
+test("brain: native-shape tool calls (llama) normalize to {id,name,arguments}", async () => {
+  const r = await think(depsWith(async () => ({
+    response: "", tool_calls: [{ name: "ping", arguments: { a: 2 } }],
+  })), [{ role: "user", content: "hi" }], TOOLS);
+  assert.strictEqual(r.toolCalls.length, 1);
+  assert.strictEqual(r.toolCalls[0].name, "ping");
+  assert.deepStrictEqual(r.toolCalls[0].arguments, { a: 2 });
+});
+
+test("brain: non-transient (model unavailable) throws immediately, fallback untouched", async () => {
+  const seen: string[] = [];
+  await assert.rejects(think(depsWith(async (model: string) => {
+    seen.push(model);
+    throw new Error("Model not available on this plan");
+  }), [{ role: "user", content: "hi" }], TOOLS), /not available/);
+  assert.deepStrictEqual(seen, [DEFAULT_PRIMARY_MODEL]);
+});
+
+test("brain: chain exhaustion throws when both models transient-fail", async () => {
+  await assert.rejects(think(depsWith(async () => {
+    throw new Error("AI error 503 overloaded, try again");
+  }), [{ role: "user", content: "hi" }], TOOLS), /brain_chain_exhausted/);
 });
