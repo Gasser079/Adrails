@@ -14,7 +14,10 @@
     "@adrails/action-ledger": "workspace:*",
     "@adrails/ads-client": "workspace:*",
     "@adrails/shared-types": "workspace:*",
-    "agents": "^0.20.0",
+    "@ai-sdk/provider": "4.0.21",
+    "@cloudflare/think": "0.20.0",
+    "agents": "0.26.0",
+    "ai": "7.0.127",
     "hono": "^4.7.0",
     "zod": "^3.23.0"
   },

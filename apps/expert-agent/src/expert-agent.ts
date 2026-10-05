@@ -1,22 +1,31 @@
-// @adrails/expert-agent — the cloud Ads expert (Agents SDK, per-tenant DO).
+// @adrails/expert-agent — the cloud Ads expert, rebased on the Think harness.
+// Agents SDK Think agent on a Durable Object (one instance per tenant):
 // Discovery-grounded reads + ledger-gated writes. No knowledge bases.
-import { Agent, callable } from "agents";
+//
+// Think owns the loop now: prompt, tool orchestration, streaming, durable
+// recovery. This file owns: the model chain (Workers AI primary + fallback),
+// the tool catalog (trimmed discovery reads + ledger tools), and the ask
+// entry (tenant gate -> programmatic turn -> AskResult).
+//
+// Turn-scoped context flows via saveMessages metadata (tenantId/question/
+// requestId), read back in getTools()/execute through activeTurnMetadata —
+// no shared mutable runtime, so concurrent asks cannot cross tenants.
+// Citation collection is keyed by requestId for the same reason.
+import { Think } from "@cloudflare/think";
+import { callable } from "agents";
+import { createAI, type WorkersAIModelId } from "agents/models/ai-sdk";
+import type { Ai } from "@cloudflare/workers-types";
 import type {} from "@cloudflare/workers-types";
+import type { UIMessage } from "ai";
 import { EXPERT_SYSTEM_PROMPT } from "./manual.js";
-import { think, type BrainDeps, type ChatMessage } from "./brain.js";
-import { DEFAULT_PRIMARY_MODEL, DEFAULT_FALLBACK_MODEL } from "./brain.js";
 import {
-  trimTools, LEDGER_TOOL_DEFS, executeToolCall,
-  type ToolRuntime, type ExecutedTool,
+  buildThinkTools, buildToolRuntime, type ExpertToolEnv,
 } from "./tools.js";
-import { DISCOVERY_TOOLS } from "./discovery-tools.generated.js";
-import { ActionLedgerRepository, TenantRepository, type D1Like } from "@adrails/action-ledger";
-import type { KvLike } from "@adrails/ads-client";
 
 export interface ExpertEnv extends Cloudflare.Env {
   LEDGER_DB: unknown;
   CACHE: unknown;
-  AI: { run(model: string, input: unknown): Promise<unknown> };
+  AI: Ai;
   BRAIN_PRIMARY_MODEL?: string;
   BRAIN_FALLBACK_MODEL?: string;
   GOOGLE_ADS_CLIENT_ID?: string;
@@ -43,72 +52,72 @@ export interface AskResult {
   };
 }
 
+const DEFAULT_PRIMARY_MODEL = "@cf/openai/gpt-oss-120b";
+const DEFAULT_FALLBACK_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MAX_TURNS = 6;
 
-export class ExpertAgent extends Agent<ExpertEnv, ExpertState> {
+export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
+  /** No shell near ad credentials. Workspace files stay (isolated virtual FS). */
+  workspaceBash = false;
+
+  private collectors = new Map<string, Array<{ method: string; path: string }>>();
+  private pendingAsk: { tenantId: string; question: string; requestId: string } | null = null;
+
+  getModel() {
+    const ai = createAI({ binding: this.env.AI });
+    const primary = (this.env.BRAIN_PRIMARY_MODEL ?? DEFAULT_PRIMARY_MODEL) as WorkersAIModelId;
+    const fallback = (this.env.BRAIN_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL) as WorkersAIModelId;
+    return ai(primary, { fallback: [fallback] });
+  }
+
+  getSystemPrompt(): string {
+    return EXPERT_SYSTEM_PROMPT;
+  }
+
+  beforeTurn() {
+    return { maxSteps: MAX_TURNS };
+  }
+
+  getTools() {
+    // saveMessages() carries no turn metadata, so the pending ask context is
+    // staged on the instance (single-flight per tenant today; revisit with
+    // turn-scoped context when the harness exposes it).
+    const staged = this.pendingAsk ?? { tenantId: "", question: "", requestId: "" };
+    const env: ExpertToolEnv = this.env;
+    return buildThinkTools(staged.question, {
+      runtime: () => buildToolRuntime(env, staged.tenantId),
+      collect: (c) => this.collectors.get(staged.requestId)?.push(c),
+    });
+  }
+
   @callable()
   async ask(input: { tenantId: string; question: string }): Promise<AskResult> {
     const requestId = `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const db = this.env.LEDGER_DB as unknown as D1Like;
-    const tenantRepo = new TenantRepository(db);
-    const tenant = await tenantRepo.getTenant(input.tenantId);
-    if (!tenant) {
-      return this.escalate(requestId, input.tenantId, "unknown tenant: onboard it via account-discovery first");
+    const pre = await buildToolRuntime(this.env, input.tenantId);
+    if (!pre.ok) return this.escalate(requestId, input.tenantId, pre.error);
+    this.collectors.set(requestId, []);
+    this.pendingAsk = { tenantId: input.tenantId, question: input.question, requestId };
+    try {
+      const msg: UIMessage = {
+        id: requestId,
+        role: "user",
+        parts: [{ type: "text", text: input.question }],
+      };
+      const result = await this.saveMessages([msg]);
+      const text = lastAssistantText(result);
+      const citations = this.collectors.get(requestId) ?? [];
+      await this.bumpTurns(input.tenantId, pre.loginCustomerId);
+      if (!text.trim()) return this.escalate(requestId, input.tenantId, "no grounded answer produced");
+      return {
+        reply_text: text,
+        chase: { request_id: requestId, status: citations.length ? "success" : "escalated", confidence: citations.length ? 0.65 : 0.0, citations, tenant_id: input.tenantId },
+      };
+    } catch (err) {
+      return this.escalate(requestId, input.tenantId, `brain unavailable: ${String((err as Error)?.message ?? err).slice(0, 200)}`);
+    } finally {
+      this.collectors.delete(requestId);
+      if (this.pendingAsk?.requestId === requestId) this.pendingAsk = null;
     }
-    const clients = await tenantRepo.listClients(input.tenantId);
-    const kv = this.env.CACHE as unknown as KvLike | null;
-    const rt: ToolRuntime = {
-      tenantId: input.tenantId,
-      loginCustomerId: tenant.loginCustomerId,
-      managedCustomerIds: clients.map((c) => c.customerId),
-      googleOAuth: {
-        clientId: this.env.GOOGLE_ADS_CLIENT_ID ?? "",
-        clientSecret: this.env.GOOGLE_ADS_CLIENT_SECRET ?? "",
-        refreshToken: this.env.GOOGLE_ADS_REFRESH_TOKEN ?? "",
-      },
-      kv,
-      ledger: new ActionLedgerRepository(db),
-    };
-    if (!rt.googleOAuth.clientId || !rt.googleOAuth.refreshToken) {
-      return this.escalate(requestId, input.tenantId, "Google OAuth not configured on this worker (Worker Secrets missing)");
-    }
-
-    const trimmed = trimTools(input.question, 12);
-    const defs = new Map(trimmed.map((d) => [d.name, d]));
-    const brainDeps: BrainDeps = {
-      primaryModel: this.env.BRAIN_PRIMARY_MODEL ?? DEFAULT_PRIMARY_MODEL,
-      fallbackModel: this.env.BRAIN_FALLBACK_MODEL ?? DEFAULT_FALLBACK_MODEL,
-      ai: this.env.AI,
-    };
-    const toolSchemas = [...trimmed, ...LEDGER_TOOL_DEFS];
-    const messages: ChatMessage[] = [
-      { role: "system", content: EXPERT_SYSTEM_PROMPT },
-      { role: "user", content: input.question },
-    ];
-    const citations: AskResult["chase"]["citations"] = [];
-    for (let i = 0; i < MAX_TURNS; i++) {
-      let step;
-      try {
-        step = await think(brainDeps, messages, toolSchemas);
-      } catch (err) {
-        return this.escalate(requestId, input.tenantId, `brain unavailable: ${String((err as Error)?.message ?? err).slice(0, 200)}`);
-      }
-      if (!step.toolCalls.length) {
-        const text = step.content.trim() || "I could not ground an answer from the available tools, so I am not answering.";
-        await this.bumpTurns(input.tenantId, tenant.loginCustomerId);
-        return {
-          reply_text: text,
-          chase: { request_id: requestId, status: citations.length ? "success" : "escalated", confidence: citations.length ? 0.65 : 0.0, citations, tenant_id: input.tenantId },
-        };
-      }
-      messages.push({ role: "assistant", content: step.content, tool_calls: step.toolCalls });
-      for (const call of step.toolCalls) {
-        const done = await executeToolCall(rt, call, defs);
-        if (done.citation) citations.push(done.citation);
-        messages.push({ role: "tool", content: done.text, tool_call_id: call.id, name: call.name });
-      }
-    }
-    return this.escalate(requestId, input.tenantId, "reasoning budget exhausted without a grounded answer");
   }
 
   private escalate(requestId: string, tenantId: string, reason: string): AskResult {
@@ -124,4 +133,17 @@ export class ExpertAgent extends Agent<ExpertEnv, ExpertState> {
       this.setState({ tenantId, loginCustomerId, discoveryVersion: "v25", turns: cur + 1 });
     } catch { /* state best-effort */ }
   }
+}
+
+/** Tolerant transcript reader: TurnResult carries the turn message; fall back to a messages array. */
+function lastAssistantText(result: unknown): string {
+  const r = result as {
+    message?: { parts?: Array<{ type?: string; text?: string }> };
+    messages?: Array<{ role?: string; parts?: Array<{ type?: string; text?: string }> }>;
+  };
+  const fromMessage = (r.message?.parts ?? []).filter((p) => p.type === "text").map((p) => p.text ?? "").join("");
+  if (fromMessage.trim()) return fromMessage;
+  const assistants = (r.messages ?? []).filter((m) => m.role === "assistant");
+  const last = assistants[assistants.length - 1];
+  return (last?.parts ?? []).filter((p) => p.type === "text").map((p) => p.text ?? "").join("");
 }

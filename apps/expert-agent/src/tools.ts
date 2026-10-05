@@ -4,9 +4,16 @@
 import { DISCOVERY_TOOLS, type DiscoveryToolDef } from "./discovery-tools.generated.js";
 import { GoogleAdsErrorMapper } from "@adrails/ads-client";
 import { refreshAccessToken } from "@adrails/ads-client";
-import { ActionLedgerRepository } from "@adrails/action-ledger";
+import { ActionLedgerRepository, TenantRepository, type D1Like } from "@adrails/action-ledger";
 import type { KvLike } from "@adrails/ads-client";
-import type { ToolCall } from "./brain.js";
+import { tool, jsonSchema, type ToolSet } from "ai";
+
+/** Minimal tool-call shape (was brain.js; brain retired into Think's loop). */
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
 
 const ADS_REST_BASE = "https://googleads.googleapis.com/v25";
 
@@ -184,4 +191,86 @@ export async function executeToolCall(
   const def = defs.get(call.name);
   if (!def) return { name: call.name, ok: false, text: `unknown tool ${call.name} (not in trimmed catalog)` };
   return executeDiscoveryTool(rt, def, call.arguments);
+}
+
+/** Env surface the tool runtime needs (subset of the worker Env). */
+export interface ExpertToolEnv {
+  LEDGER_DB: unknown;
+  CACHE: unknown;
+  GOOGLE_ADS_CLIENT_ID?: string;
+  GOOGLE_ADS_CLIENT_SECRET?: string;
+  GOOGLE_ADS_REFRESH_TOKEN?: string;
+}
+
+export type RuntimeBuild =
+  | { ok: true; rt: ToolRuntime; loginCustomerId: string }
+  | { ok: false; error: string };
+
+/** Stateless per-call runtime construction (tenant check + OAuth presence). */
+export async function buildToolRuntime(env: ExpertToolEnv, tenantId: string): Promise<RuntimeBuild> {
+  const db = env.LEDGER_DB as unknown as D1Like;
+  const tenantRepo = new TenantRepository(db);
+  const tenant = await tenantRepo.getTenant(tenantId);
+  if (!tenant) return { ok: false, error: "unknown tenant: onboard it via account-discovery first" };
+  const clients = await tenantRepo.listClients(tenantId);
+  const rt: ToolRuntime = {
+    tenantId,
+    loginCustomerId: tenant.loginCustomerId,
+    managedCustomerIds: clients.map((c) => c.customerId),
+    googleOAuth: {
+      clientId: env.GOOGLE_ADS_CLIENT_ID ?? "",
+      clientSecret: env.GOOGLE_ADS_CLIENT_SECRET ?? "",
+      refreshToken: env.GOOGLE_ADS_REFRESH_TOKEN ?? "",
+    },
+    kv: env.CACHE as unknown as KvLike | null,
+    ledger: new ActionLedgerRepository(db),
+  };
+  if (!rt.googleOAuth.clientId || !rt.googleOAuth.refreshToken) {
+    return { ok: false, error: "Google OAuth not configured on this worker (Worker Secrets missing)" };
+  }
+  return { ok: true, rt, loginCustomerId: tenant.loginCustomerId };
+}
+
+export interface ThinkToolHooks {
+  runtime: () => Promise<RuntimeBuild>;
+  collect: (citation: { method: string; path: string }) => void;
+}
+
+/**
+ * Convert the trimmed discovery catalog + ledger defs into AI SDK tools for
+ * Think's getTools(). Tool names are restricted to the model's safe alphabet;
+ * anything else never reaches the model (compiler test enforces read-only).
+ */
+export function buildThinkTools(question: string, hooks: ThinkToolHooks): ToolSet {
+  type Member = ToolSet[string];
+  const mk = (
+    description: string,
+    parameters: unknown,
+    execute: (args: Record<string, unknown>) => Promise<string>,
+  ): Member =>
+    tool({
+      description,
+      inputSchema: jsonSchema(parameters as unknown as Parameters<typeof jsonSchema>[0]),
+      execute: async (args) => execute(args as Record<string, unknown>),
+    }) as Member;
+  const tools: Record<string, Member> = {};
+  for (const def of trimTools(question, 12)) {
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(def.name)) continue;
+    tools[def.name] = mk(def.description.slice(0, 500), def.parameters, async (args) => {
+      const r = await hooks.runtime();
+      if (!r.ok) return `tool unavailable: ${r.error}`;
+      const done = await executeDiscoveryTool(r.rt, def, args);
+      if (done.citation) hooks.collect(done.citation);
+      return done.text;
+    });
+  }
+  for (const def of LEDGER_TOOL_DEFS) {
+    tools[def.name] = mk(def.description, def.parameters, async (args) => {
+      const r = await hooks.runtime();
+      if (!r.ok) return `tool unavailable: ${r.error}`;
+      const done = await executeLedgerTool(r.rt, { id: `call-${Date.now().toString(36)}`, name: def.name, arguments: args });
+      return done.text;
+    });
+  }
+  return tools as ToolSet;
 }
