@@ -5,6 +5,7 @@ import { buildThinkTools, buildToolRuntime } from "../tools.js";
 const hooks = {
   runtime: async () => ({ ok: false, error: "no tenant here" }) as const,
   collect: () => {},
+  attempt: () => {},
 };
 
 test("think tools: trimmed discovery + ledger tools, safe names only", () => {

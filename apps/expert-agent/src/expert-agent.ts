@@ -61,6 +61,7 @@ export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
   workspaceBash = false;
 
   private collectors = new Map<string, Array<{ method: string; path: string }>>();
+  private attempts = new Map<string, Array<{ name: string; error?: string }>>();
   private pendingAsk: { tenantId: string; question: string; requestId: string } | null = null;
 
   getModel() {
@@ -87,6 +88,7 @@ export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
     return buildThinkTools(staged.question, {
       runtime: () => buildToolRuntime(env, staged.tenantId),
       collect: (c) => this.collectors.get(staged.requestId)?.push(c),
+      attempt: (name, error) => this.attempts.get(staged.requestId)?.push({ name, error }),
     });
   }
 
@@ -96,6 +98,7 @@ export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
     const pre = await buildToolRuntime(this.env, input.tenantId);
     if (!pre.ok) return this.escalate(requestId, input.tenantId, pre.error);
     this.collectors.set(requestId, []);
+    this.attempts.set(requestId, []);
     this.pendingAsk = { tenantId: input.tenantId, question: input.question, requestId };
     try {
       const msg: UIMessage = {
@@ -106,8 +109,13 @@ export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
       const result = await this.saveMessages([msg]);
       const text = lastAssistantText(result);
       const citations = this.collectors.get(requestId) ?? [];
+      const tried = this.attempts.get(requestId) ?? [];
       await this.bumpTurns(input.tenantId, pre.loginCustomerId);
-      if (!text.trim()) return this.escalate(requestId, input.tenantId, "no grounded answer produced");
+      if (!text.trim()) {
+        const firstErr = tried.find((t) => t.error)?.error ?? "none recorded";
+        return this.escalate(requestId, input.tenantId,
+          `no grounded answer produced (tools attempted: ${tried.length}${tried.length ? ` [${tried.map((t) => t.name).join(", ")}]` : ""}, first tool error: ${firstErr})`);
+      }
       return {
         reply_text: text,
         chase: { request_id: requestId, status: citations.length ? "success" : "escalated", confidence: citations.length ? 0.65 : 0.0, citations, tenant_id: input.tenantId },
@@ -116,6 +124,7 @@ export class ExpertAgent extends Think<ExpertEnv, ExpertState> {
       return this.escalate(requestId, input.tenantId, `brain unavailable: ${String((err as Error)?.message ?? err).slice(0, 200)}`);
     } finally {
       this.collectors.delete(requestId);
+      this.attempts.delete(requestId);
       if (this.pendingAsk?.requestId === requestId) this.pendingAsk = null;
     }
   }

@@ -234,6 +234,7 @@ export async function buildToolRuntime(env: ExpertToolEnv, tenantId: string): Pr
 export interface ThinkToolHooks {
   runtime: () => Promise<RuntimeBuild>;
   collect: (citation: { method: string; path: string }) => void;
+  attempt: (name: string, errorText?: string) => void;
 }
 
 /**
@@ -258,8 +259,9 @@ export function buildThinkTools(question: string, hooks: ThinkToolHooks): ToolSe
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(def.name)) continue;
     tools[def.name] = mk(def.description.slice(0, 500), def.parameters, async (args) => {
       const r = await hooks.runtime();
-      if (!r.ok) return `tool unavailable: ${r.error}`;
+      if (!r.ok) { hooks.attempt(def.name, `tool unavailable: ${r.error}`); return `tool unavailable: ${r.error}`; }
       const done = await executeDiscoveryTool(r.rt, def, args);
+      hooks.attempt(def.name, done.ok ? undefined : done.text.slice(0, 150));
       if (done.citation) hooks.collect(done.citation);
       return done.text;
     });
@@ -267,8 +269,9 @@ export function buildThinkTools(question: string, hooks: ThinkToolHooks): ToolSe
   for (const def of LEDGER_TOOL_DEFS) {
     tools[def.name] = mk(def.description, def.parameters, async (args) => {
       const r = await hooks.runtime();
-      if (!r.ok) return `tool unavailable: ${r.error}`;
+      if (!r.ok) { hooks.attempt(def.name, `tool unavailable: ${r.error}`); return `tool unavailable: ${r.error}`; }
       const done = await executeLedgerTool(r.rt, { id: `call-${Date.now().toString(36)}`, name: def.name, arguments: args });
+      hooks.attempt(def.name, done.ok ? undefined : done.text.slice(0, 150));
       return done.text;
     });
   }
