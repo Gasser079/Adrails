@@ -11,8 +11,9 @@ import { webhookRoutes } from "./routes/webhooks.js";
 export function createApp(deps: AdrailsDeps): Hono {
   const app = new Hono();
   // Short-term: open CORS so the owner can drive the API from a local
-  // browser page. Revisit with real auth when team logins land (Stage 2).
-  app.use("/*", cors({ origin: "*" }));
+  // browser page WITH the Access session cookie (credentialed requests need
+  // an echoed origin — "*" is rejected by browsers). Revisit with team auth.
+  app.use("/*", cors({ origin: (o) => o, credentials: true }));
   app.route("/", healthRoutes(deps));
   app.route("/", strategyRoutes(deps));
   app.route("/", ledgerRoutes(deps));

@@ -19,7 +19,9 @@ const AskInput = z.object({ question: z.string().min(1).max(4000) });
 export function createExpertApp(): Hono {
   const app = new Hono();
   // Short-term: open CORS for the owner's browser smoke page (revisit with auth).
-  app.use("/*", cors({ origin: "*" }));
+  // Credentialed (Access session cookie) — echo origin, as "*" is rejected
+  // by browsers on credentialed requests.
+  app.use("/*", cors({ origin: (o) => o, credentials: true }));
   app.get("/health", (c) => c.json({ status: "ok", service: "adrails-expert", apiVersion: "v25" }));
   app.post("/v1/expert/:tenantId/ask", async (c) => {
     const input = AskInput.parse(await c.req.json());
